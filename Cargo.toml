@@ -1,0 +1,10 @@
+[package]
+name = "copperhorn"
+version = "0.1.0"
+authors = ["Jacob Konrad <jakegkonrad@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+
+[lib]
+path = "src/copperhorn.rs"
