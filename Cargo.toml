@@ -5,6 +5,7 @@ authors = ["Jacob Konrad <jakegkonrad@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+rand = "0.6.5"
 
 [lib]
 path = "src/copperhorn.rs"
