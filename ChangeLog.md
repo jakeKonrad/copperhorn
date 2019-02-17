@@ -9,6 +9,8 @@ Goals
 + a .new() method on organisms
 + tests
 
+###### 17.02.2019
 
+Can spawn a neural network organism from m to n that learns via oja's rule.
 
 

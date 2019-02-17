@@ -13,111 +13,139 @@ mod copperhorn {
     // Identifiers for hidden neurons.
     type NeuronId = u32;
 
-    // Holds the weights coming from the input
-    // and the weights coming from the hidden neurons.
-    pub struct Neuron {
-        bias: Real,
-        input: HashMap<usize, Real>,
-        hidden: HashMap<NeuronId, Real>,
-    }
+    // In order from the left: the bias, the input connections, and the hidden 
+    // connections.
+    pub struct Neuron(Real, HashMap<usize, Real>, HashMap<NeuronId, Real>);
 
     impl Neuron {
-        // Computes the output of a neuron. TODO: vectorize.
-        fn fire(&self, cache: &HashMap<NeuronId, Real>, xs: &[Real]) -> Real {
-            let mut acc = self.bias;
-            for (i, w) in self.input.iter() {
+        // Computes the output of a neuron and updates the 
+        // weights according to Oja's rule. TODO: vectorize.
+        fn fire(&mut self, eta: Real, xs: &[Real], cache: &HashMap<NeuronId, Real>) -> Real {
+            let mut potential = self.0;
+
+            for (i, w) in self.1.iter() {
                 if let Some(x) = xs.get(*i) {
-                    acc += x * w;
+                    potential += *x * w;
                 }
             }
-            for (i, w) in self.hidden.iter() {
+
+            for (i, w) in self.2.iter() {
                 if let Some(x) = cache.get(i) {
-                    acc += x * w;
+                    potential += *x * w;
                 }
             }
-            acc
+
+            let output = potential.tanh();
+
+            let coefficient = eta * output;
+
+            for (i, w) in self.1.iter_mut() {
+                if let Some(x) = xs.get(*i) {
+                    *w += coefficient * (*x - output * *w);
+                }
+            }
+
+            for (i, w) in self.2.iter_mut() {
+                if let Some(x) = cache.get(i) {
+                    *w = coefficient * (*x - output * *w);
+                }
+            }
+
+            output
         }
     }
 
-    // Holds the hidden neurons and the output layer.
-    pub struct Organism(HashMap<NeuronId, Neuron>, Vec<Neuron>);
+    // Has fields: hidden, contains the hidden neurons;
+    // output, holds the output neurons.
+    pub struct Organism {
+        hidden: HashMap<NeuronId, Neuron>,
+        output: Box<[Neuron]>,
+    }
 
     impl Organism {
         // Generates a new organism. Generates random connections between output layer
         // and input layer with no hidden neurons.
-        pub fn new(x: usize, y: usize) -> Self {
+        pub fn spawn(x: usize, y: usize) -> Self {
             let mut rng = SmallRng::from_entropy();
-            let inputs: &[usize] = &(0..(x - 1)).collect::<Vec<_>>()[..];
-            let output_neurons = (0..(y - 1))
+
+            let input: &[usize] = &(0..(x - 1)).collect::<Vec<_>>()[..];
+
+            let hidden = HashMap::new();
+
+            let output = (0..(y - 1))
                 .map(|_| {
                     let n: usize = rng.gen_range(1, x);
                     let mut ws = HashMap::with_capacity(n);
-                    for j in inputs.choose_multiple(&mut rng, n) {
+                    for j in input.choose_multiple(&mut rng, n) {
                         ws.insert(*j, rng.gen());
                     }
-                    Neuron {
-                        bias: rng.gen(),
-                        input: ws,
-                        hidden: HashMap::new(),
-                    }
+                    Neuron(rng.gen(), ws, HashMap::new())
                 })
-                .collect();
-            Organism(HashMap::new(), output_neurons)
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            
+            Organism { 
+                hidden,
+                output,
+            }
         }
 
         // Computes output of neural network.
-        pub fn act(&self, xs: &[Real]) -> Vec<Real> {
+        pub fn act(&mut self, eta: Real, xs: &[Real]) -> Box<[Real]> {
             // Sets up a cache to hold already fired neurons.
-            let mut cache = HashMap::with_capacity(self.0.len());
+            let mut cache = HashMap::with_capacity(self.hidden.len());
 
             // Computes the topological ordering of the hidden neurons
             // and computes neuron firing and stores the results
             // in the cache. TODO: support firing neurons in parallel.
-            for (i, n) in top_sort(&self.0) {
-                let y = n.fire(&cache, xs);
-                cache.insert(*i, y);
+            for i in top_sort(&self.hidden).iter() {
+                if let Some(n) = self.hidden.get_mut(i) {
+                    let y = n.fire(eta, xs, &cache);
+                    cache.insert(*i, y);
+                }
             }
 
             // Sets up output vector.
-            let mut ys = Vec::with_capacity(self.1.len());
+            let mut ys = Vec::with_capacity(self.output.len());
 
             // Fills the output vector. TODO:
             // support firing neurons in parallel.
-            for n in self.1.iter() {
-                let y = n.fire(&cache, xs);
+            for n in self.output.iter_mut() {
+                let y = n.fire(eta, xs, &cache);
                 ys.push(y);
             }
-            ys
+
+            ys.into_boxed_slice()
         }
     }
 
     // Utility functions.
-
+   
     // See issue with visit.
-    fn top_sort<'a>(graph: &'a HashMap<NeuronId, Neuron>) -> Vec<(NeuronId, &'a Neuron)> {
+    fn top_sort(graph: &HashMap<NeuronId, Neuron>) -> Box<[NeuronId]> {
         let mut stack = Vec::with_capacity(graph.len());
         let mut visited = HashSet::with_capacity(graph.len());
-        for i in graph {
+        for i in graph.keys() {
             visit(*i, graph, &mut stack, &mut visited);
         }
-        stack
+        stack.into_boxed_slice()
     }
 
     // TODO: needs proper error handling if graph has a loop
     // this will overflow the stack.
-    fn visit<'a>(
+    fn visit(
         i: NeuronId,
-        graph: &'a HashMap<NeuronId, Neuron>,
-        stack: &mut Vec<(NeuronId, &'a Neuron)>,
+        graph: &HashMap<NeuronId, Neuron>,
+        stack: &mut Vec<NeuronId>,
         visited: &mut HashSet<NeuronId>,
     ) {
-        if !(visited.contains(i)) {
-            if let Some(n) = graph.get(i) {
-                for j in n.hidden.keys() {
+        if !(visited.contains(&i)) {
+            if let Some(n) = graph.get(&i) {
+                for j in n.2.keys() {
                     visit(*j, graph, stack, visited);
                 }
-                visited.insert(*j);
-                stack.push((*j, n))
+                visited.insert(i);
+                stack.push(i)
             }
         }
     }
