@@ -11,6 +11,12 @@ Goals
 
 ###### 17.02.2019
 
-Can spawn a neural network organism from m to n that learns via oja's rule.
+Can spawn a neural network organism from m to n that learns via Oja's rule.
 
+###### 23.02.2019
 
+Have given Neuron a learn method and a new and learn methods to Organism. Seperated concerns between learning and outputting for both Neuron and Organism.  
+
+###### 20.03.2019
+
+Reorganised everything.
